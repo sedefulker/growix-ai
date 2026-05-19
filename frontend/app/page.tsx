@@ -1,408 +1,638 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
+import Masthead from "@/components/Masthead";
 import { generateContentListing } from "@/lib/api";
 import type { ContentGenerationResponse } from "@/types";
 
+type ToneKey     = "sincere" | "professional" | "youthful";
+type PlatformKey = "trendyol" | "hepsiburada" | "n11";
+
+const PLATFORM_LABELS: Record<PlatformKey, string> = {
+  trendyol:    "Trendyol — %15 komisyon",
+  hepsiburada: "Hepsiburada — %14 komisyon",
+  n11:         "n11 — %12 komisyon",
+};
+
 export default function Home() {
-  const [selectedFile, setSelectedFile]         = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl]             = useState<string | null>(null);
-  const [briefDescription, setBriefDescription] = useState("");
-  const [costPrice, setCostPrice]               = useState("");
-  const [platform, setPlatform]                 = useState<"trendyol" | "hepsiburada" | "n11">("trendyol");
-  const [isGenerating, setIsGenerating]         = useState(false);
-  const [generationResult, setGenerationResult] = useState<ContentGenerationResponse | null>(null);
-  const [errorMessage, setErrorMessage]         = useState<string | null>(null);
-  const [activeToneTab, setActiveToneTab]       = useState<"sincere" | "professional" | "youthful">("sincere");
-  const [copiedFieldKey, setCopiedFieldKey]     = useState<string | null>(null);
-  const [isDragging, setIsDragging]             = useState(false);
+  const [file, setFile]               = useState<File | null>(null);
+  const [preview, setPreview]         = useState<string | null>(null);
+  const [description, setDescription] = useState("");
+  const [costPrice, setCostPrice]     = useState("");
+  const [platform, setPlatform]       = useState<PlatformKey>("trendyol");
+  const [generating, setGenerating]   = useState(false);
+  const [result, setResult]           = useState<ContentGenerationResponse | null>(null);
+  const [error, setError]             = useState<string | null>(null);
+  const [tone, setTone]               = useState<ToneKey>("sincere");
+  const [copied, setCopied]           = useState<string | null>(null);
+  const [dragging, setDragging]       = useState(false);
+  const [step, setStep]               = useState<1 | 2 | 3>(1);
 
-  // useRef KALDIRILDI — artık label kullanıyoruz
+  // ── handlers ────────────────────────────────────────────────────────────────
 
-  const handleFileSelection = (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      setErrorMessage("Lütfen geçerli bir resim dosyası yükleyin.");
-      return;
-    }
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setGenerationResult(null);
-    setErrorMessage(null);
+  const selectFile = (f: File) => {
+    if (!f.type.startsWith("image/")) { setError("Geçerli bir görsel dosyası seçin."); return; }
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+    setError(null);
+    setStep(2);
   };
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFileSelection(file);
-  };
+  const onFileChange  = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) selectFile(f); };
+  const onDrop        = (e: React.DragEvent) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) selectFile(f); };
+  const onDragOver    = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
+  const onDragLeave   = () => setDragging(false);
 
-  const handleDragOver  = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
-  const handleDragLeave = () => setIsDragging(false);
-  const handleDrop      = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFileSelection(file);
-  };
-
-  const handleGenerateSubmit = async () => {
-    if (!selectedFile || !briefDescription.trim() || !costPrice) return;
-    setIsGenerating(true);
-    setErrorMessage(null);
-    setGenerationResult(null);
+  const onSubmit = async () => {
+    if (!file || !description.trim() || !costPrice) return;
+    setGenerating(true);
+    setError(null);
+    setResult(null);
     try {
-      const response = await generateContentListing(
-        selectedFile,
-        briefDescription,
-        parseFloat(costPrice),
-        platform,
-      );
-      setGenerationResult(response);
-    } catch (error: any) {
-      setErrorMessage(error.message || "İçerik üretilirken hata oluştu.");
+      const res = await generateContentListing(file, description, parseFloat(costPrice), platform);
+      setResult(res);
+      setStep(3);
+    } catch (err: any) {
+      setError(err.message || "Analiz başarısız. Lütfen tekrar deneyin.");
     } finally {
-      setIsGenerating(false);
+      setGenerating(false);
     }
   };
 
-  const copyToClipboard = (text: string, key: string) => {
+  const copyText = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedFieldKey(key);
-    setTimeout(() => setCopiedFieldKey(null), 1800);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
   };
 
-  const displayDescription = useMemo(() => {
-    if (!generationResult) return "";
-    if (activeToneTab === "sincere")      return generationResult.tone_sincere;
-    if (activeToneTab === "professional") return generationResult.tone_professional;
-    return generationResult.tone_youthful;
-  }, [generationResult, activeToneTab]);
+  const activeDesc = useMemo(() => {
+    if (!result) return "";
+    return tone === "sincere" ? result.tone_sincere : tone === "professional" ? result.tone_professional : result.tone_youthful;
+  }, [result, tone]);
 
-  const isFormReady = !!selectedFile && briefDescription.trim().length > 0 && costPrice.length > 0;
+  const isReady = !!file && description.trim().length > 0 && costPrice.length > 0;
+
+  // ── render ───────────────────────────────────────────────────────────────────
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Instrument+Sans:wght@400;500;600&display=swap');
-
-        :root {
-          --ink: #0A0A0A; --ink-2: #3A3A3A; --ink-3: #7A7A7A; --ink-4: #B0B0B0;
-          --surface: #FAFAF8; --surface-2: #F2F1EE;
-          --green: #1C6641; --green-light: #EBF5EF; --green-mid: #2D9A5F;
-          --border: #E0DFDB; --radius: 8px;
-          --font-display: 'Syne', sans-serif;
-          --font-body: 'Instrument Sans', sans-serif;
-          --shadow-sm: 0 2px 8px rgba(0,0,0,0.04);
-          --shadow-md: 0 8px 24px rgba(0,0,0,0.06);
+        /* ── PAGE LAYOUT ── */
+        .home-grid {
+          max-width: 1280px;
+          margin: 0 auto;
+          padding: 52px 48px 80px;
+          display: grid;
+          grid-template-columns: 1fr 380px;
+          gap: 0;
+          align-items: start;
         }
 
-        *, *::before, *::after { box-sizing: border-box; }
-        body { font-family: var(--font-body); background: var(--surface); color: var(--ink); margin: 0; padding: 0; overflow-x: hidden; }
+        /* ── LEFT ── */
+        .left { padding-right: 52px; border-right: 1px solid var(--border); }
 
-        .nav { position: fixed; top: 0; width: 100%; height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 5%; background: rgba(250,250,248,0.9); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 100; }
-        .nav-logo { font-family: var(--font-display); font-weight: 800; font-size: 20px; display: flex; align-items: center; gap: 8px; }
-        .nav-dot { width: 8px; height: 8px; background: var(--green-mid); border-radius: 50%; }
+        .lead-eyebrow {
+          font-family: var(--font-mono);
+          font-size: 9px;
+          font-weight: 500;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          color: var(--red);
+          margin-bottom: 20px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .lead-eyebrow::before, .lead-eyebrow::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background: var(--red);
+          opacity: 0.25;
+        }
 
-        .hero { max-width: 1200px; margin: 0 auto; padding: 120px 5% 60px; display: grid; grid-template-columns: 1fr 460px; gap: 64px; align-items: start; }
-        .hero-title { font-family: var(--font-display); font-size: clamp(34px, 4.5vw, 52px); font-weight: 800; line-height: 1.1; letter-spacing: -1.5px; margin: 0 0 20px; }
-        .hero-title span { color: var(--green-mid); }
-        .hero-desc { color: var(--ink-2); line-height: 1.75; font-size: 15px; margin-bottom: 36px; max-width: 460px; }
+        .lead-headline {
+          font-family: var(--font-display);
+          font-size: clamp(40px, 4.2vw, 64px);
+          font-weight: 600;
+          line-height: 1.08;
+          letter-spacing: -1px;
+          color: var(--ink);
+          margin-bottom: 22px;
+        }
+        .lead-headline em { font-style: italic; color: var(--red); }
 
-        .form-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); overflow: hidden; }
-        .form-header { padding: 16px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; font-family: var(--font-display); font-size: 13px; font-weight: 700; background: #fafafa; letter-spacing: 0.04em; }
-        .form-body { padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+        .lead-body {
+          font-size: 14.5px;
+          font-weight: 300;
+          line-height: 1.8;
+          color: var(--ink-2);
+          max-width: 500px;
+          margin-bottom: 44px;
+          padding-bottom: 36px;
+          border-bottom: 1px solid var(--border-2);
+        }
 
-        /* ── UPLOAD: label KULLANIYORUZ, onClick YOK ── */
-        .upload-label {
+        /* STATS */
+        .stats-row { display: flex; gap: 0; margin-bottom: 40px; }
+        .stat {
+          padding: 0 28px 0 0;
+          margin-right: 28px;
+          border-right: 1px solid var(--border-2);
+        }
+        .stat:last-child { border-right: none; margin-right: 0; }
+        .stat-n {
+          font-family: var(--font-display);
+          font-size: 36px;
+          font-weight: 600;
+          color: var(--ink);
+          line-height: 1;
+          margin-bottom: 5px;
+        }
+        .stat-l { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); }
+
+        /* STEPS */
+        .steps { display: flex; border: 1px solid var(--border); }
+        .step-item {
+          flex: 1;
+          padding: 12px 16px;
+          border-right: 1px solid var(--border);
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          transition: background 0.15s;
+        }
+        .step-item:last-child { border-right: none; }
+        .step-item.done   { background: var(--paper-2); }
+        .step-item.active { background: var(--ink); }
+
+        .step-num {
+          width: 22px; height: 22px;
+          font-family: var(--font-mono);
+          font-size: 10px;
+          font-weight: 500;
+          border: 1px solid var(--border);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          color: var(--ink-4);
+        }
+        .step-item.done   .step-num { border-color: var(--red);  color: var(--red);  }
+        .step-item.active .step-num { border-color: #fff;        color: #fff;        }
+
+        .step-label {
+          font-family: var(--font-mono);
+          font-size: 9px;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+          color: var(--ink-4);
+        }
+        .step-item.active .step-label { color: #C8C2B0; }
+
+        /* ── RIGHT / FORM ── */
+        .right { padding-left: 44px; position: sticky; top: 24px; }
+
+        .form-head {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          padding-bottom: 14px;
+          border-bottom: 2px solid var(--ink);
+          margin-bottom: 22px;
+        }
+        .form-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--ink); }
+        .form-sub   { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+
+        /* UPLOAD */
+        .upload-zone {
           display: block;
-          border: 2px dashed var(--border);
-          border-radius: 6px;
-          padding: 32px 16px;
-          text-align: center;
+          border: 1px solid var(--border);
+          background: var(--paper-2);
           cursor: pointer;
-          background: var(--surface-2);
-          transition: all 0.18s ease;
+          margin-bottom: 18px;
+          transition: border-color 0.14s, background 0.14s;
         }
-        .upload-label:hover,
-        .upload-label.dragging {
-          border-color: var(--green-mid);
-          background: var(--green-light);
-        }
-        .preview-img { width: 100%; height: 190px; object-fit: cover; border-radius: 6px; display: block; }
+        .upload-zone:hover, .upload-zone.drag { border-color: var(--red); background: var(--red-dim); }
+        .upload-zone.drag { outline: 2px dashed var(--red); outline-offset: -4px; }
 
-        .field-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); display: block; margin-bottom: 6px; }
+        .upload-inner { padding: 28px 16px; text-align: center; }
+        .upload-icon {
+          width: 38px; height: 38px;
+          border: 1px solid var(--border);
+          display: flex; align-items: center; justify-content: center;
+          margin: 0 auto 12px;
+        }
+        .upload-icon svg { width: 16px; height: 16px; stroke: var(--ink-3); }
+        .upload-p { font-size: 13px; font-weight: 500; color: var(--ink-2); margin-bottom: 4px; }
+        .upload-s { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-4); }
+
+        .preview-img  { width: 100%; height: 196px; object-fit: cover; display: block; }
+        .preview-meta {
+          padding: 8px 12px;
+          background: var(--ink);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .preview-name   { font-family: var(--font-mono); font-size: 10px; color: #9E998F; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .preview-change { font-family: var(--font-mono); font-size: 10px; color: var(--red-2); cursor: pointer; flex-shrink: 0; margin-left: 8px; }
+
+        /* FIELDS */
+        .field         { margin-bottom: 15px; }
+        .field-label   { font-family: var(--font-mono); font-size: 9px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); display: block; margin-bottom: 6px; }
+        .field-row     { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
+
         .field-input, .field-select, .field-textarea {
-          width: 100%; padding: 11px 13px;
-          border: 1px solid var(--border); border-radius: 6px;
-          font-family: var(--font-body); font-size: 13px;
-          background: var(--surface-2); color: var(--ink);
-          outline: none; transition: border-color 0.18s, background 0.18s;
+          width: 100%;
+          padding: 10px 12px;
+          font-family: var(--font-body);
+          font-size: 13px;
+          font-weight: 300;
+          color: var(--ink);
+          background: var(--paper);
+          border: 1px solid var(--border);
+          outline: none;
+          transition: border-color 0.12s, background 0.12s;
           appearance: none;
         }
         .field-input:focus, .field-select:focus, .field-textarea:focus {
-          border-color: var(--green-mid); background: #fff;
-          box-shadow: 0 0 0 3px var(--green-light);
+          border-color: var(--ink);
+          background: #fff;
         }
-        .field-textarea { resize: none; }
-        .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .field-textarea { resize: none; line-height: 1.65; }
 
-        .btn { width: 100%; padding: 14px; background: var(--ink); color: #fff; border: none; border-radius: 6px; font-family: var(--font-display); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; cursor: pointer; transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .btn:hover:not(:disabled) { background: var(--green); }
-        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .spinner { width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.65s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* SUBMIT */
+        .submit-btn {
+          width: 100%;
+          padding: 13px 16px;
+          background: var(--ink);
+          color: var(--paper);
+          border: none;
+          font-family: var(--font-mono);
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          cursor: pointer;
+          transition: background 0.14s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+        }
+        .submit-btn:hover:not(:disabled) { background: var(--red); }
+        .submit-btn:disabled { opacity: 0.28; cursor: not-allowed; }
 
-        .err { color: #e11d48; font-size: 12px; background: #ffe4e6; padding: 10px 14px; border-radius: 6px; font-weight: 500; }
+        /* ── RESULTS ── */
+        .results {
+          max-width: 1280px;
+          margin: 0 auto;
+          padding: 0 48px 100px;
+        }
 
-        .results { max-width: 1200px; margin: 0 auto; padding: 0 5% 100px; }
-        .results-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
-        .results-title { font-family: var(--font-display); font-size: 28px; margin: 0; }
-        .results-id { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+        .results-head {
+          border-top: 3px double var(--border);
+          padding: 22px 0;
+          margin-bottom: 2px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          align-items: end;
+          gap: 20px;
+        }
+        .results-kicker { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; }
+        .results-title  { font-family: var(--font-display); font-size: 40px; font-weight: 600; letter-spacing: -1px; line-height: 1; }
+        .results-meta   { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.06em; text-align: right; line-height: 1.9; }
 
-        .fin-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
-        .fin-card { background: var(--green-light); border: 1px solid #C2E4CF; padding: 20px; border-radius: var(--radius); }
-        .fin-val { font-family: var(--font-display); font-size: 26px; font-weight: 800; color: var(--green); }
-        .fin-lbl { font-size: 11px; font-weight: 600; color: var(--green-mid); text-transform: uppercase; margin-top: 4px; letter-spacing: 0.04em; }
+        /* FIN STRIP */
+        .fin-strip { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); margin-bottom: 2px; }
+        .fin-cell  { padding: 18px 22px; border-right: 1px solid var(--border); }
+        .fin-cell:last-child { border-right: none; }
+        .fin-k { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 8px; }
+        .fin-v { font-family: var(--font-display); font-size: 32px; font-weight: 600; color: var(--ink); line-height: 1; }
+        .fin-v.accent { color: var(--red); }
 
-        .strategy-card { background: var(--surface-2); border: 1px dashed var(--border); padding: 20px 24px; border-radius: var(--radius); margin-bottom: 16px; }
+        /* BREAKDOWN STRIP */
+        .breakdown-strip {
+          display: grid;
+          grid-template-columns: repeat(3, auto) 1fr;
+          border: 1px solid var(--border);
+          border-top: none;
+          background: var(--paper-2);
+          margin-bottom: 20px;
+        }
+        .bc { padding: 12px 18px; border-right: 1px solid var(--border); }
+        .bc:last-child { border-right: none; }
+        .bc-k { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 5px; }
+        .bc-v { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--ink-2); }
+        .bc-logic { font-size: 12px; font-weight: 300; font-style: italic; color: var(--ink-3); line-height: 1.65; padding-top: 2px; }
 
-        .output-card { background: #fff; border: 1px solid var(--border); padding: 24px; border-radius: var(--radius); margin-bottom: 14px; position: relative; box-shadow: var(--shadow-sm); }
-        .output-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-3); display: block; margin-bottom: 12px; }
-        .copy-btn { position: absolute; top: 20px; right: 20px; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--green-mid); background: var(--green-light); padding: 4px 10px; border-radius: 4px; border: none; transition: 0.15s; }
-        .copy-btn:hover { background: var(--green-mid); color: #fff; }
+        /* OUTPUT GRID */
+        .out-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin-bottom: 2px; }
+        .out-full { grid-column: 1/-1; }
 
-        .tone-tabs { display: flex; gap: 6px; margin-bottom: 16px; background: var(--surface-2); padding: 5px; border-radius: 8px; flex-wrap: wrap; }
-        .tone-tab { flex: 1; min-width: 90px; padding: 8px; font-size: 12px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; transition: 0.15s; background: transparent; color: var(--ink-3); }
-        .tone-tab.active { background: #fff; color: var(--ink); box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+        .seo-title-text { font-family: var(--font-display); font-size: 22px; font-weight: 600; line-height: 1.3; color: var(--ink); }
+        .body-text      { font-size: 13.5px; font-weight: 300; line-height: 1.85; color: var(--ink-2); }
+        .tags-wrap      { display: flex; flex-wrap: wrap; gap: 7px; }
 
-        .tag { display: inline-block; padding: 5px 12px; background: var(--green-light); color: var(--green); border: 1px solid #C2E4CF; border-radius: 20px; font-size: 12px; margin: 4px 5px 4px 0; font-weight: 600; }
+        /* CTA FOOTER */
+        .result-footer {
+          margin-top: 20px;
+          padding: 14px 18px;
+          border: 1px solid var(--border);
+          background: var(--paper-2);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .result-footer-note { font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); letter-spacing: 0.06em; }
+        .result-footer-link { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--red); text-decoration: none; }
+        .result-footer-link:hover { text-decoration: underline; }
 
-        @media (max-width: 1024px) {
-          .hero { grid-template-columns: 1fr; gap: 36px; padding-top: 96px; }
-          .fin-grid { grid-template-columns: 1fr 1fr; }
+        /* RESPONSIVE */
+        @media (max-width: 1100px) {
+          .home-grid   { grid-template-columns: 1fr; padding: 36px 32px 60px; }
+          .left        { padding-right: 0; border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 40px; margin-bottom: 40px; }
+          .right       { padding-left: 0; position: static; }
+          .results     { padding: 0 32px 80px; }
+          .fin-strip   { grid-template-columns: 1fr 1fr; }
+          .fin-cell:nth-child(2) { border-right: none; }
+          .fin-cell:nth-child(3) { border-top: 1px solid var(--border); }
+          .fin-cell:nth-child(4) { border-top: 1px solid var(--border); border-right: none; }
+          .breakdown-strip { grid-template-columns: 1fr 1fr; }
+          .bc:nth-child(2) { border-right: none; }
+          .bc:nth-child(3) { border-top: 1px solid var(--border); }
+          .bc:nth-child(4) { border-top: 1px solid var(--border); border-right: none; grid-column: 1/-1; }
         }
         @media (max-width: 640px) {
-          .hero { padding: 86px 20px 40px; }
-          .nav { padding: 0 20px; }
-          .hero-title { font-size: 30px; }
-          .fin-grid { grid-template-columns: 1fr; }
-          .field-row { grid-template-columns: 1fr; }
+          .home-grid   { padding: 24px 20px 60px; }
+          .results     { padding: 0 20px 60px; }
+          .lead-headline { font-size: 36px; }
+          .stats-row   { flex-wrap: wrap; gap: 16px; }
+          .stat        { border-right: none; margin: 0; }
+          .steps       { flex-direction: column; }
+          .step-item   { border-right: none; border-bottom: 1px solid var(--border); }
+          .fin-strip   { grid-template-columns: 1fr; }
+          .fin-cell    { border-right: none; border-bottom: 1px solid var(--border); }
+          .out-grid    { grid-template-columns: 1fr; }
+          .field-row   { grid-template-columns: 1fr; }
+          .results-head { grid-template-columns: 1fr; }
+          .results-title { font-size: 30px; }
+          .breakdown-strip { grid-template-columns: 1fr; }
+          .bc { border-right: none; border-bottom: 1px solid var(--border); }
         }
       `}</style>
 
-      <nav className="nav">
-        <div className="nav-logo">
-          GROWIX <span className="nav-dot" />
-        </div>
-        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--green)", letterSpacing: "0.08em" }}>
-          AI SATIŞ PLATFORMU
-        </span>
-      </nav>
+      <Masthead />
 
       <main>
-        <section className="hero">
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--green)", letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: "18px" }}>
-              E-Ticaret Zekası
-            </div>
-            <h1 className="hero-title">
+        {/* ── TWO COLUMN ── */}
+        <div className="home-grid">
+
+          {/* LEFT — EDITORIAL */}
+          <div className="left">
+            <p className="lead-eyebrow">Baş Makale · Satıcı İstihbaratı</p>
+
+            <h1 className="lead-headline">
               Veriyle karar ver,<br />
-              <span>kârla</span> büyü.
+              <em>kârla</em> büyü.
             </h1>
-            <p className="hero-desc">
-              Ürün görselinizi yükleyin, maliyetinizi girin. Growix platform komisyonunu,
-              kargo maliyetini ve pazar rekabetini analiz ederek net kâr hesabı
-              ve SEO uyumlu içerik üretir.
+
+            <p className="lead-body">
+              Türkiye'nin 500.000 küçük e-ticaret satıcısı her gün sezgiyle karar veriyor.
+              Growix, ürün görselinizi ve maliyetinizi alarak platform komisyonunu, kargo
+              giderini ve rakip fiyatlarını analiz eder — saniyeler içinde, net kâr hesabı
+              ve SEO uyumlu içerikle.
             </p>
-            <div style={{ display: "flex", gap: "32px", borderTop: "1px solid var(--border)", paddingTop: "24px" }}>
+
+            <div className="stats-row">
               {[
-                { val: "1.5s", lbl: "Analiz Süresi" },
-                { val: "3",    lbl: "İçerik Tonu"  },
-                { val: "%35+", lbl: "Hedef Kâr Marjı" },
-              ].map((m) => (
-                <div key={m.lbl}>
-                  <div style={{ fontSize: "26px", fontWeight: 800, fontFamily: "var(--font-display)" }}>{m.val}</div>
-                  <div style={{ fontSize: "11px", color: "var(--ink-3)", marginTop: "3px" }}>{m.lbl}</div>
+                { n: "1.5s",  l: "Ortalama Analiz Süresi" },
+                { n: "3",     l: "İçerik Tonu Seçeneği"  },
+                { n: "%35+",  l: "Hedef Net Kâr Marjı"   },
+              ].map((s) => (
+                <div key={s.l} className="stat">
+                  <div className="stat-n">{s.n}</div>
+                  <div className="stat-l">{s.l}</div>
                 </div>
               ))}
             </div>
-          </div>
 
-          <div className="form-card">
-            <div className="form-header">
-              YENİ ANALİZ
-              <div style={{ width: 7, height: 7, background: "var(--green-mid)", borderRadius: "50%" }} />
+            <div className="section-rule">
+              <div className="section-rule-line" />
+              <span className="section-rule-label">Analiz Adımları</span>
+              <div className="section-rule-line" />
             </div>
 
-            <div className="form-body">
+            <div className="steps">
+              {[
+                { n: "01", l: "Görsel Yükle"  },
+                { n: "02", l: "Bilgi Gir"     },
+                { n: "03", l: "Rapor Al"      },
+              ].map((p, i) => {
+                const s = i + 1;
+                const cls = step > s ? "done" : step === s ? "active" : "";
+                return (
+                  <div key={p.n} className={`step-item ${cls}`}>
+                    <span className="step-num">{step > s ? "✓" : p.n}</span>
+                    <span className="step-label">{p.l}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-              {/* ── UPLOAD: input label İÇİNDE, onClick YOK ── */}
-              <div>
-                <span className="field-label">Ürün Görseli</span>
-                <label
-                  className={`upload-label ${isDragging ? "dragging" : ""}`}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileInputChange}
-                    style={{ display: "none" }}
-                  />
-                  {previewUrl ? (
-                    <img src={previewUrl} alt="Önizleme" className="preview-img" />
-                  ) : (
-                    <>
-                      <div style={{ fontSize: "22px", marginBottom: "10px" }}>📸</div>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink-2)" }}>
-                        Görsel yükle veya sürükle
-                      </div>
-                      <div style={{ fontSize: "11px", color: "var(--ink-4)", marginTop: "5px" }}>
-                        PNG · JPG · WEBP · Maks 5MB
-                      </div>
-                    </>
-                  )}
-                </label>
-              </div>
+          {/* RIGHT — FORM */}
+          <div className="right">
+            <div className="form-head">
+              <div className="form-title">Yeni Analiz</div>
+              <div className="form-sub">Platform Raporu</div>
+            </div>
 
-              {/* AÇIKLAMA */}
+            {/* UPLOAD */}
+            <label
+              className={`upload-zone ${dragging ? "drag" : ""}`}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+            >
+              <input type="file" accept="image/*" onChange={onFileChange} style={{ display: "none" }} />
+              {preview ? (
+                <>
+                  <img src={preview} alt="Ürün görseli önizlemesi" className="preview-img" />
+                  <div className="preview-meta">
+                    <span className="preview-name">{file?.name}</span>
+                    <span className="preview-change">Değiştir</span>
+                  </div>
+                </>
+              ) : (
+                <div className="upload-inner">
+                  <div className="upload-icon">
+                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                  </div>
+                  <p className="upload-p">Ürün görselini yükleyin veya sürükleyin</p>
+                  <p className="upload-s">PNG · JPG · WEBP · Maks 5MB</p>
+                </div>
+              )}
+            </label>
+
+            {/* DESCRIPTION */}
+            <div className="field">
+              <label className="field-label" htmlFor="desc">Ürün Kısa Tanımı</label>
+              <textarea
+                id="desc"
+                className="field-textarea"
+                rows={3}
+                placeholder="Öne çıkan özelliği yazın (Ör: El dokuması %100 yün çorap)"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
+
+            {/* COST + PLATFORM */}
+            <div className="field-row">
               <div>
-                <label className="field-label" htmlFor="brief">Ürün Kısa Tanımı</label>
-                <textarea
-                  id="brief"
-                  className="field-textarea"
-                  placeholder="Ürünün öne çıkan özelliğini yazın (Ör: El dokuması %100 yün çorap)"
-                  rows={3}
-                  value={briefDescription}
-                  onChange={(e) => setBriefDescription(e.target.value)}
+                <label className="field-label" htmlFor="cost">Ürün Maliyeti (₺)</label>
+                <input
+                  id="cost"
+                  type="number"
+                  className="field-input"
+                  placeholder="Örn: 85"
+                  min={0}
+                  value={costPrice}
+                  onChange={(e) => setCostPrice(e.target.value)}
                 />
               </div>
-
-              {/* MALİYET + PLATFORM */}
-              <div className="field-row">
-                <div>
-                  <label className="field-label" htmlFor="cost">Ürün Maliyeti (₺)</label>
-                  <input
-                    id="cost"
-                    type="number"
-                    className="field-input"
-                    placeholder="Ör: 85"
-                    min={0}
-                    value={costPrice}
-                    onChange={(e) => setCostPrice(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="platform">Platform</label>
-                  <select
-                    id="platform"
-                    className="field-select"
-                    value={platform}
-                    onChange={(e) => setPlatform(e.target.value as typeof platform)}
-                  >
-                    <option value="trendyol">Trendyol (%15)</option>
-                    <option value="hepsiburada">Hepsiburada (%14)</option>
-                    <option value="n11">n11 (%12)</option>
-                  </select>
-                </div>
+              <div>
+                <label className="field-label" htmlFor="platform">Platform</label>
+                <select id="platform" className="field-select" value={platform} onChange={(e) => setPlatform(e.target.value as PlatformKey)}>
+                  {(Object.entries(PLATFORM_LABELS) as [PlatformKey, string][]).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
               </div>
-
-              <button
-                className="btn"
-                onClick={handleGenerateSubmit}
-                disabled={isGenerating || !isFormReady}
-              >
-                {isGenerating
-                  ? <><div className="spinner" />Analiz Ediliyor</>
-                  : "Strateji Oluştur"}
-              </button>
-
-              {errorMessage && <div className="err">{errorMessage}</div>}
             </div>
+
+            {/* SUBMIT */}
+            <button className="submit-btn" onClick={onSubmit} disabled={generating || !isReady} aria-busy={generating}>
+              {generating ? <><div className="spinner" aria-hidden="true" /> Analiz Ediliyor</> : "— Raporu Oluştur —"}
+            </button>
+
+            {error && <div className="err-bar" role="alert">{error}</div>}
           </div>
-        </section>
+        </div>
 
-        {generationResult && (
-          <section className="results">
+        {/* ── RESULTS ── */}
+        {result && (
+          <div className="results">
             <div className="results-head">
-              <h2 className="results-title">Analiz Raporu</h2>
-              <span className="results-id">#{generationResult.id || "—"}</span>
+              <div>
+                <p className="results-kicker">Analiz Raporu · {platform.toUpperCase()}</p>
+                <h2 className="results-title">Finansal Röntgen</h2>
+              </div>
+              <div className="results-meta">
+                Kayıt #{result.id || "—"}<br />
+                {new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" })}
+              </div>
             </div>
 
-            <div className="fin-grid">
+            {/* FIN STRIP */}
+            <div className="fin-strip">
               {[
-                { val: `${generationResult.suggested_price} ₺`, lbl: "Önerilen Fiyat"    },
-                { val: `${generationResult.net_profit} ₺`,      lbl: "Net Kâr / Adet"    },
-                { val: `%${generationResult.profit_margin}`,    lbl: "Kâr Marjı"         },
-                { val: `${generationResult.estimated_profit} ₺`,lbl: "20 Satış Tahmini"  },
+                { k: "Önerilen Fiyat",   v: `${result.suggested_price} ₺`, a: true  },
+                { k: "Net Kâr / Adet",   v: `${result.net_profit} ₺`,      a: true  },
+                { k: "Kâr Marjı",        v: `%${result.profit_margin}`,    a: false },
+                { k: "20 Satış Tahmini", v: `${result.estimated_profit} ₺`,a: true  },
               ].map((c) => (
-                <div key={c.lbl} className="fin-card">
-                  <div className="fin-val">{c.val}</div>
-                  <div className="fin-lbl">{c.lbl}</div>
+                <div key={c.k} className="fin-cell">
+                  <p className="fin-k">{c.k}</p>
+                  <p className={`fin-v ${c.a ? "accent" : ""}`}>{c.v}</p>
                 </div>
               ))}
             </div>
 
-            <div className="strategy-card">
-              <span className="output-label">Maliyet Dökümü</span>
-              <div style={{ display: "flex", gap: "32px", flexWrap: "wrap", marginBottom: "12px" }}>
-                {[
-                  { lbl: "Ürün Maliyeti",      val: `${generationResult.cost_price} ₺`       },
-                  { lbl: "Platform Komisyonu", val: `${generationResult.commission_amount} ₺` },
-                  { lbl: "Kargo",              val: `${generationResult.cargo_cost} ₺`        },
-                ].map((r) => (
-                  <div key={r.lbl}>
-                    <div style={{ fontSize: "11px", color: "var(--ink-3)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{r.lbl}</div>
-                    <div style={{ fontSize: "18px", fontWeight: 700, fontFamily: "var(--font-display)", marginTop: "2px" }}>{r.val}</div>
-                  </div>
-                ))}
-              </div>
-              <p style={{ fontSize: "13px", fontStyle: "italic", color: "var(--ink-2)", lineHeight: 1.7, margin: 0 }}>
-                {generationResult.pricing_logic}
-              </p>
-            </div>
-
-            <div className="output-card">
-              <button className="copy-btn" onClick={() => copyToClipboard(generationResult.seo_title, "title")}>
-                {copiedFieldKey === "title" ? "✓ Kopyalandı" : "Kopyala"}
-              </button>
-              <span className="output-label">SEO Uyumlu Başlık</span>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: "20px", fontWeight: 700 }}>
-                {generationResult.seo_title}
+            {/* BREAKDOWN */}
+            <div className="breakdown-strip">
+              {[
+                { k: "Ürün Maliyeti",      v: `${result.cost_price} ₺`       },
+                { k: "Komisyon",           v: `${result.commission_amount} ₺` },
+                { k: "Kargo",              v: `${result.cargo_cost} ₺`        },
+              ].map((r) => (
+                <div key={r.k} className="bc">
+                  <p className="bc-k">{r.k}</p>
+                  <p className="bc-v">{r.v}</p>
+                </div>
+              ))}
+              <div className="bc">
+                <p className="bc-k">Yapay Zeka Notu</p>
+                <p className="bc-logic">{result.pricing_logic}</p>
               </div>
             </div>
 
-            <div className="output-card">
-              <button className="copy-btn" onClick={() => copyToClipboard(displayDescription, "desc")}>
-                {copiedFieldKey === "desc" ? "✓ Kopyalandı" : "Kopyala"}
-              </button>
-              <span className="output-label">Satış Açıklaması</span>
-              <div className="tone-tabs">
-                {(["sincere", "professional", "youthful"] as const).map((t) => (
-                  <button
-                    key={t}
-                    className={`tone-tab ${activeToneTab === t ? "active" : ""}`}
-                    onClick={() => setActiveToneTab(t)}
-                  >
-                    {t === "sincere" ? "Samimi" : t === "professional" ? "Kurumsal" : "Dinamik"}
+            {/* OUTPUT BLOCKS */}
+            <div className="out-grid">
+              {/* SEO TITLE */}
+              <div className="block out-full">
+                <div className="block-head">
+                  <span className="mono-label">SEO Başlığı</span>
+                  <button className="copy-btn" data-copied={copied === "title" ? "" : undefined} onClick={() => copyText(result.seo_title, "title")}>
+                    {copied === "title" ? "Kopyalandı" : "Kopyala"}
                   </button>
-                ))}
+                </div>
+                <div className="block-body">
+                  <p className="seo-title-text">{result.seo_title}</p>
+                </div>
               </div>
-              <div style={{ fontSize: "14px", lineHeight: 1.8, color: "var(--ink-2)" }}>
-                {displayDescription}
+
+              {/* DESCRIPTION */}
+              <div className="block out-full">
+                <div className="block-head">
+                  <span className="mono-label">Satış Açıklaması</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div className="tone-tabs">
+                      {(["sincere", "professional", "youthful"] as ToneKey[]).map((t) => (
+                        <button key={t} className={`tone-tab ${tone === t ? "active" : ""}`} onClick={() => setTone(t)}>
+                          {t === "sincere" ? "Samimi" : t === "professional" ? "Kurumsal" : "Dinamik"}
+                        </button>
+                      ))}
+                    </div>
+                    <button className="copy-btn" data-copied={copied === "desc" ? "" : undefined} onClick={() => copyText(activeDesc, "desc")}>
+                      {copied === "desc" ? "Kopyalandı" : "Kopyala"}
+                    </button>
+                  </div>
+                </div>
+                <div className="block-body">
+                  <p className="body-text">{activeDesc}</p>
+                </div>
+              </div>
+
+              {/* TAGS */}
+              <div className="block out-full">
+                <div className="block-head">
+                  <span className="mono-label">Anahtar Kelimeler</span>
+                  <button className="copy-btn" data-copied={copied === "tags" ? "" : undefined} onClick={() => copyText(result.tags.join(", "), "tags")}>
+                    {copied === "tags" ? "Kopyalandı" : "Kopyala"}
+                  </button>
+                </div>
+                <div className="block-body">
+                  <div className="tags-wrap">
+                    {result.tags.map((tag, i) => <span key={i} className="tag-chip">{tag}</span>)}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="output-card">
-              <span className="output-label">Anahtar Kelimeler</span>
-              <div style={{ marginTop: "8px" }}>
-                {generationResult.tags.map((tag, i) => (
-                  <span key={i} className="tag">{tag}</span>
-                ))}
-              </div>
+            {/* FOOTER CTA */}
+            <div className="result-footer">
+              <span className="result-footer-note">Veritabanına kaydedildi · #{result.id}</span>
+              <Link href="/dashboard" className="result-footer-link">Tüm Analizleri Görüntüle →</Link>
             </div>
-          </section>
+          </div>
         )}
       </main>
     </>

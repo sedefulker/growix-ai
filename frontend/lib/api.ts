@@ -38,12 +38,41 @@ export async function getAllListings(): Promise<ContentGenerationResponse[]> {
   return response.json();
 }
 
-export async function getListingById(id: number): Promise<ContentGenerationResponse> {
+export async function getListingById(id: string | number): Promise<ContentGenerationResponse> {
   const response = await fetch(`${API_BASE_URL}/content/listings/${id}`);
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
     throw new Error(errorData?.detail || "Analiz bulunamadı.");
+  }
+
+  return response.json();
+}
+
+// --- Trend Ajanı ---
+export async function analyzeTrend(keyword: string) {
+  const response = await fetch(`${API_BASE_URL}/trends/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keyword }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || "Trend verisi alınamadı.");
+  }
+
+  return response.json();
+}
+
+export async function getTrendByKeyword(keyword: string) {
+  const response = await fetch(
+    `${API_BASE_URL}/trends/analyze/${encodeURIComponent(keyword)}`
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || "Trend verisi alınamadı.");
   }
 
   return response.json();
